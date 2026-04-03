@@ -1,0 +1,23 @@
+{
+  "entities": {
+    "Feedback": {
+      "title": "User Feedback",
+      "description": "Feedback provided by users on solar analysis results.",
+      "type": "object",
+      "properties": {
+        "analysisId": { "type": "string", "description": "ID of the solar zone analyzed" },
+        "rating": { "type": "number", "description": "Star rating from 1 to 5" },
+        "comment": { "type": "string", "description": "Qualitative feedback or suggestions" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the feedback was submitted" },
+        "userId": { "type": "string", "description": "UID of the user (if authenticated)" }
+      },
+      "required": ["rating", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/feedback/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "Collection of user feedback entries."
+    }
+  }
+}

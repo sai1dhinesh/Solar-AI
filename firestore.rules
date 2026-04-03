@@ -1,0 +1,47 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: feedback
+// Document ID: auto-generated
+// Fields:
+//   - analysisId: string (optional) - ID of the solar zone
+//   - rating: number (required, 1-5) - Star rating
+//   - comment: string (optional, max 1000 chars) - User suggestions
+//   - timestamp: timestamp (required) - Submission time
+//   - userId: string (optional) - UID of the user
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidFeedback(data) {
+      return data.rating is number && 
+             data.rating >= 1 && 
+             data.rating <= 5 &&
+             data.timestamp is timestamp &&
+             (!('comment' in data) || (data.comment is string && data.comment.size() <= 1000)) &&
+             (!('analysisId' in data) || data.analysisId is string);
+    }
+
+    match /feedback/{feedbackId} {
+      // Allow anyone to create feedback (unauthenticated allowed for this public tool)
+      allow create: if isValidFeedback(request.resource.data);
+      
+      // Only admins can read/list feedback
+      allow read: if isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
