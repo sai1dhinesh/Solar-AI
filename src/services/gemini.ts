@@ -29,7 +29,7 @@ export interface SolarAnalysisResult {
 
 export async function analyzeSolarPotential(params: {
   area: number;
-  sunlightHours: number;
+  sunlightHours?: number; // Made optional
   tariff: number;
   location: string;
   efficiency?: number;
@@ -44,7 +44,7 @@ export async function analyzeSolarPotential(params: {
     contents: `Act as an AI-powered geospatial decision platform for decentralized solar infrastructure.
       Analyze solar energy potential for a location with:
       - Rooftop/Ground Area: ${params.area} sq meters
-      - Average Sunlight Hours: ${params.sunlightHours} hours/day
+      ${params.sunlightHours ? `- Average Sunlight Hours: ${params.sunlightHours} hours/day` : "- Average Sunlight Hours: Not provided (Please estimate based on the location coordinates/name)"}
       - Local Electricity Tariff: $${params.tariff}/kWh
       - Location: ${params.location}
       - Roof Tilt: ${params.tilt || 20} degrees
@@ -55,6 +55,7 @@ export async function analyzeSolarPotential(params: {
       ${params.systemCost ? `- Estimated System Cost: $${params.systemCost}` : ""}
       
       Provide a detailed technical and financial decision report for government execution. Include a clear YES/NO verdict for installation.
+      If sunlight hours were not provided, use your internal geospatial knowledge to estimate the average annual solar irradiance for this specific location.
       Consider Indian MNRE (Ministry of New and Renewable Energy) subsidy patterns if applicable.
       Also include a grid stability score (0-100) and community impact assessment.`,
     config: {

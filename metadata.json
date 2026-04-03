@@ -1,5 +1,5 @@
 {
-  "name": "SolarAI: Geospatial Decision Platform",
+  "name": "SolarPotential AI",
   "description": "AI-powered geospatial decision platform for decentralized solar infrastructure planning and financial intelligence.",
   "requestFramePermissions": [
     "geolocation"

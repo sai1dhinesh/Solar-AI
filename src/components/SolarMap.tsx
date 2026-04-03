@@ -4,7 +4,8 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { cn } from '../lib/utils';
 import { HistoricalIrradianceChart } from './Charts';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search, X, Zap, Globe, Map as MapIcon, Navigation } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 // Fix for default marker icons in React-Leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -50,7 +51,7 @@ interface SolarZone {
   lat: number;
   lng: number;
   potential: 'High' | 'Medium' | 'Low';
-  irradiance: number; // kWh/m2/day
+  irradiance?: number; // kWh/m2/day
   area: number; // m2
   historicalData: IrradiancePoint[];
 }
@@ -121,14 +122,23 @@ const MOCK_ZONES: SolarZone[] = [
 interface SolarMapProps {
   onZoneSelect: (zone: SolarZone) => void;
   searchQuery?: string;
+  onSearchChange?: (query: string) => void;
   showHeatmap?: boolean;
 }
 
-export default function SolarMap({ onZoneSelect, searchQuery = '', showHeatmap = false }: SolarMapProps) {
+export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChange, showHeatmap = false }: SolarMapProps) {
   const [center, setCenter] = useState<[number, number]>([34.0522, -118.2437]);
   const [zoom, setZoom] = useState(13);
   const [customMarker, setCustomMarker] = useState<[number, number] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [localSearch, setLocalSearch] = useState(searchQuery);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Sync local search with prop
+  useEffect(() => {
+    setLocalSearch(searchQuery);
+  }, [searchQuery]);
 
   // Filter zones based on search query
   const filteredZones = MOCK_ZONES.filter(zone => 
@@ -138,38 +148,64 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', showHeatmap =
 
   // Global Search Logic using Nominatim
   useEffect(() => {
-    if (!searchQuery || searchQuery.length < 3) return;
+    if (!localSearch || localSearch.length < 3) return;
 
     const timer = setTimeout(async () => {
       // 1. Check if it's a coordinate search
       const coordRegex = /^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/;
-      const match = searchQuery.match(coordRegex);
+      const match = localSearch.match(coordRegex);
       if (match) {
         const lat = parseFloat(match[1]);
         const lng = parseFloat(match[3]);
         if (!isNaN(lat) && !isNaN(lng)) {
           setCenter([lat, lng]);
           setZoom(15);
+          setCustomMarker([lat, lng]);
+          onZoneSelect({
+            id: 'coords',
+            name: `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+            lat,
+            lng,
+            potential: 'Medium',
+            irradiance: undefined,
+            area: 250,
+            historicalData: MOCK_ZONES[1].historicalData
+          });
           return;
         }
       }
 
       // 2. Check if it's a mock zone search
-      if (filteredZones.length === 1) {
-        setCenter([filteredZones[0].lat, filteredZones[0].lng]);
+      const zoneMatch = MOCK_ZONES.find(z => z.name.toLowerCase() === localSearch.toLowerCase());
+      if (zoneMatch) {
+        setCenter([zoneMatch.lat, zoneMatch.lng]);
         setZoom(14);
+        onZoneSelect(zoneMatch);
         return;
       }
 
       // 3. Global Geocoding Search
       setIsSearching(true);
       try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(localSearch)}&limit=1`);
         const data = await response.json();
         if (data && data.length > 0) {
-          const { lat, lon } = data[0];
-          setCenter([parseFloat(lat), parseFloat(lon)]);
+          const { lat, lon, display_name } = data[0];
+          const newLat = parseFloat(lat);
+          const newLng = parseFloat(lon);
+          setCenter([newLat, newLng]);
           setZoom(14);
+          setCustomMarker([newLat, newLng]);
+          onZoneSelect({
+            id: 'search-result',
+            name: display_name.split(',')[0],
+            lat: newLat,
+            lng: newLng,
+            potential: 'Medium',
+            irradiance: undefined,
+            area: 300,
+            historicalData: MOCK_ZONES[1].historicalData
+          });
         }
       } catch (error) {
         console.error('Geocoding error:', error);
@@ -179,7 +215,84 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', showHeatmap =
     }, 1000); // Debounce search
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [localSearch, onZoneSelect]);
+
+  // Autocomplete Logic
+  useEffect(() => {
+    if (!localSearch || localSearch.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const localMatches = MOCK_ZONES.filter(z => 
+        z.name.toLowerCase().includes(localSearch.toLowerCase())
+      ).map(z => ({
+        type: 'zone',
+        label: z.name,
+        data: z
+      }));
+
+      // Check for coordinates
+      const coordRegex = /^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/;
+      const match = localSearch.match(coordRegex);
+      const coordMatches = match ? [{
+        type: 'coords',
+        label: `Coordinates: ${match[1]}, ${match[3]}`,
+        lat: parseFloat(match[1]),
+        lng: parseFloat(match[3])
+      }] : [];
+
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(localSearch)}&limit=5`);
+        const data = await response.json();
+        const globalMatches = data.map((item: any) => ({
+          type: 'global',
+          label: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon)
+        }));
+
+        setSuggestions([...localMatches, ...coordMatches, ...globalMatches]);
+      } catch (error) {
+        console.error('Autocomplete error:', error);
+        setSuggestions([...localMatches, ...coordMatches]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [localSearch]);
+
+  const handleSelectSuggestion = (suggestion: any) => {
+    setShowSuggestions(false);
+    setLocalSearch(suggestion.label);
+    onSearchChange?.(suggestion.label);
+
+    if (suggestion.type === 'zone') {
+      setCenter([suggestion.data.lat, suggestion.data.lng]);
+      setZoom(14);
+      onZoneSelect(suggestion.data);
+    } else {
+      setCenter([suggestion.lat, suggestion.lng]);
+      setZoom(14);
+      setCustomMarker([suggestion.lat, suggestion.lng]);
+      onZoneSelect({
+        id: suggestion.type === 'coords' ? 'coords' : 'search-result',
+        name: suggestion.label.split(',')[0],
+        lat: suggestion.lat,
+        lng: suggestion.lng,
+        potential: 'Medium',
+        irradiance: undefined,
+        area: 300,
+        historicalData: MOCK_ZONES[1].historicalData
+      });
+    }
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // The useEffect handles the search via searchQuery prop
+  };
 
   const handleMapClick = (lat: number, lng: number) => {
     setCustomMarker([lat, lng]);
@@ -189,10 +302,38 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', showHeatmap =
       lat,
       lng,
       potential: 'Medium',
-      irradiance: 5.0,
+      irradiance: undefined,
       area: 200,
       historicalData: MOCK_ZONES[1].historicalData
     });
+  };
+
+  const handleClearMarkers = () => {
+    setCustomMarker(null);
+    onZoneSelect(null as any);
+  };
+
+  const handleLocateMe = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        setCenter([latitude, longitude]);
+        setZoom(15);
+        setCustomMarker([latitude, longitude]);
+        onZoneSelect({
+          id: 'my-location',
+          name: 'My Current Location',
+          lat: latitude,
+          lng: longitude,
+          potential: 'Medium',
+          irradiance: undefined,
+          area: 200,
+          historicalData: MOCK_ZONES[1].historicalData
+        });
+      }, (error) => {
+        console.error('Geolocation error:', error);
+      });
+    }
   };
 
   return (
@@ -301,6 +442,143 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', showHeatmap =
           <span className="text-xs font-medium text-slate-600">Searching global database...</span>
         </div>
       )}
+
+      <SearchOverlay 
+        value={localSearch} 
+        onChange={(val) => {
+          setLocalSearch(val);
+          onSearchChange?.(val);
+          setShowSuggestions(true);
+        }} 
+        isSearching={isSearching}
+        suggestions={suggestions}
+        showSuggestions={showSuggestions}
+        onSelectSuggestion={handleSelectSuggestion}
+        onCloseSuggestions={() => setShowSuggestions(false)}
+        onOpenSuggestions={() => setShowSuggestions(true)}
+      />
+
+      {/* Map Controls */}
+      <div className="absolute bottom-6 left-6 z-[1000] flex flex-col gap-2">
+        <button 
+          onClick={handleLocateMe}
+          className="p-3 bg-white text-slate-700 rounded-full shadow-lg border border-slate-200 hover:bg-slate-50 transition-all group"
+          title="Locate Me"
+        >
+          <Navigation size={20} className="group-hover:text-orange-500 transition-colors" />
+        </button>
+        {customMarker && (
+          <button 
+            onClick={handleClearMarkers}
+            className="p-3 bg-white text-slate-700 rounded-full shadow-lg border border-slate-200 hover:bg-slate-50 transition-all group"
+            title="Clear Markers"
+          >
+            <X size={20} className="group-hover:text-red-500 transition-colors" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SearchOverlay({ 
+  value, 
+  onChange, 
+  isSearching, 
+  suggestions, 
+  showSuggestions, 
+  onSelectSuggestion,
+  onCloseSuggestions,
+  onOpenSuggestions
+}: { 
+  value: string, 
+  onChange: (val: string) => void, 
+  isSearching: boolean,
+  suggestions: any[],
+  showSuggestions: boolean,
+  onSelectSuggestion: (s: any) => void,
+  onCloseSuggestions: () => void,
+  onOpenSuggestions: () => void
+}) {
+  return (
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-md px-4">
+      <div className="relative group">
+        <div className="absolute inset-0 bg-white/40 backdrop-blur-md rounded-xl -m-1 opacity-0 group-focus-within:opacity-100 transition-opacity" />
+        <div className="relative bg-white shadow-2xl border border-slate-200 rounded-xl flex items-center p-1">
+          <div className="pl-3 pr-2 text-slate-400">
+            {isSearching ? <Loader2 className="w-4 h-4 animate-spin text-orange-500" /> : <Search className="w-4 h-4" />}
+          </div>
+          <input 
+            type="text"
+            placeholder="Search address, coordinates, or zones..."
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onFocus={() => value.length >= 3 && onOpenSuggestions()}
+            className="flex-1 bg-transparent border-none outline-none text-sm py-2 pr-4 text-slate-700 placeholder:text-slate-400"
+          />
+          {value && (
+            <div className="flex items-center">
+              <button 
+                onClick={() => {
+                  onChange('');
+                  onCloseSuggestions();
+                }}
+                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X size={14} />
+              </button>
+              <div className="w-px h-4 bg-slate-200 mx-1" />
+              <button 
+                className="px-3 py-1.5 text-xs font-bold text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                onClick={() => {
+                  // Trigger search logic
+                  onChange(value);
+                  onCloseSuggestions();
+                }}
+              >
+                Search
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Suggestions Dropdown */}
+        <AnimatePresence>
+          {showSuggestions && suggestions.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-[1001]"
+            >
+              <div className="max-h-64 overflow-y-auto">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onSelectSuggestion(s)}
+                    className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 border-b border-slate-100 last:border-0"
+                  >
+                    <div className={cn(
+                      "mt-0.5 p-1 rounded",
+                      s.type === 'zone' ? "bg-orange-100 text-orange-600" :
+                      s.type === 'coords' ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-600"
+                    )}>
+                      {s.type === 'zone' ? <Zap size={12} /> : 
+                       s.type === 'coords' ? <Globe size={12} /> : <MapIcon size={12} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900 truncate">{s.label}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
+                        {s.type === 'zone' ? 'Solar Zone' : s.type === 'coords' ? 'Coordinates' : 'Global Location'}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

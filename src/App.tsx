@@ -18,7 +18,8 @@ import {
   FileText,
   Download,
   ShieldCheck,
-  Zap as ZapIcon
+  Zap as ZapIcon,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import SolarMap from './components/SolarMap';
@@ -29,7 +30,7 @@ import { cn } from './lib/utils';
 import { generatePDFReport } from './lib/pdfGenerator';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'map' | 'analysis' | 'reports'>('map');
+  const [activeTab, setActiveTab] = useState<'map' | 'analysis' | 'reports' | 'settings'>('map');
   const [selectedZone, setSelectedZone] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<SolarAnalysisResult | null>(null);
@@ -37,6 +38,17 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [isGovMode, setIsGovMode] = useState(false);
+  const [isFullscreenMap, setIsFullscreenMap] = useState(false);
+
+  // Settings State
+  const [mapProvider, setMapProvider] = useState<'osm' | 'satellite' | 'terrain'>('osm');
+  const [currency, setCurrency] = useState<'USD' | 'EUR' | 'INR' | 'GBP'>('USD');
+  const [defaultZoom, setDefaultZoom] = useState<number>(13);
+  const [autoAnalyze, setAutoAnalyze] = useState<boolean>(true);
+  const [orgName, setOrgName] = useState<string>('SolarPotential AI');
+  const [contactEmail, setContactEmail] = useState<string>('support@solarpotential.ai');
+  const [includeVerdict, setIncludeVerdict] = useState<boolean>(true);
+  const [subsidyRate, setSubsidyRate] = useState<number>(30);
 
   // Custom parameters
   const [efficiency, setEfficiency] = useState<number>(20);
@@ -45,6 +57,16 @@ export default function App() {
   const [tilt, setTilt] = useState<number>(20);
   const [orientation, setOrientation] = useState<string>('South');
   const [shading, setShading] = useState<number>(0.1);
+
+  const formatCurrency = (amount: number) => {
+    const symbols: Record<string, string> = {
+      USD: '$',
+      EUR: '€',
+      INR: '₹',
+      GBP: '£'
+    };
+    return `${symbols[currency] || '$'}${amount.toLocaleString()}`;
+  };
 
   const handleDownloadReport = () => {
     if (selectedZone && analysisResult) {
@@ -61,8 +83,10 @@ export default function App() {
 
   const handleZoneSelect = async (zone: any) => {
     setSelectedZone(zone);
-    setActiveTab('analysis');
-    runAnalysis(zone);
+    if (autoAnalyze) {
+      setActiveTab('analysis');
+      runAnalysis(zone);
+    }
   };
 
   const runAnalysis = async (zone: any) => {
@@ -73,8 +97,8 @@ export default function App() {
       const result = await analyzeSolarPotential({
         area: zone.area,
         sunlightHours: zone.irradiance,
-        tariff: 0.15, // Mock tariff
-        location: `Lat: ${zone.lat}, Lng: ${zone.lng}`,
+        tariff: currency === 'INR' ? 7.5 : 0.15, // Dynamic tariff based on currency
+        location: zone.name || `Lat: ${zone.lat}, Lng: ${zone.lng}`,
         efficiency,
         degradationRate: degradation,
         systemCost,
@@ -99,7 +123,7 @@ export default function App() {
           <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-orange-200">
             <Sun size={24} />
           </div>
-          <h1 className="font-display font-bold text-xl tracking-tight text-slate-900">SolarAI</h1>
+          <h1 className="font-display font-bold text-xl tracking-tight text-slate-900">SolarPotential AI</h1>
         </div>
 
         <nav className="flex-1 px-4 space-y-1">
@@ -120,6 +144,12 @@ export default function App() {
             label="Reports" 
             active={activeTab === 'reports'} 
             onClick={() => setActiveTab('reports')} 
+          />
+          <SidebarItem 
+            icon={<Settings size={20} />} 
+            label="Settings" 
+            active={activeTab === 'settings'} 
+            onClick={() => setActiveTab('settings')} 
           />
         </nav>
 
@@ -169,12 +199,31 @@ export default function App() {
                 placeholder="Search location, coordinates, or zones..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    // Trigger search logic if needed
+                  }
+                }}
+                className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all"
               />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-500 hover:bg-slate-50 rounded-lg transition-colors">
+            <button 
+              onClick={() => setActiveTab('settings')}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                activeTab === 'settings' ? "bg-orange-50 text-orange-600" : "text-slate-500 hover:bg-slate-50"
+              )}
+            >
               <Settings size={20} />
             </button>
             <div className="w-8 h-8 bg-slate-200 rounded-full overflow-hidden">
@@ -207,12 +256,38 @@ export default function App() {
                 </div>
                 
                 <div className="flex-1 min-h-[500px] relative">
-                  <SolarMap 
-                    onZoneSelect={handleZoneSelect} 
-                    searchQuery={searchQuery}
-                    showHeatmap={showHeatmap}
-                  />
+                  <div className={cn(
+                    "transition-all duration-500 ease-in-out",
+                    isFullscreenMap ? "fixed inset-0 z-50 bg-white p-4" : "h-full"
+                  )}>
+                    {isFullscreenMap && (
+                      <div className="absolute top-8 right-8 z-[2000]">
+                        <button 
+                          onClick={() => setIsFullscreenMap(false)}
+                          className="bg-white p-2 rounded-full shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all"
+                        >
+                          <ChevronRight className="rotate-180" />
+                        </button>
+                      </div>
+                    )}
+                    <SolarMap 
+                      onZoneSelect={(zone) => {
+                        handleZoneSelect(zone);
+                        if (isFullscreenMap) setIsFullscreenMap(false);
+                      }} 
+                      searchQuery={searchQuery}
+                      onSearchChange={setSearchQuery}
+                      showHeatmap={showHeatmap}
+                    />
+                  </div>
                   <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-2">
+                    <button 
+                      onClick={() => setIsFullscreenMap(!isFullscreenMap)}
+                      className="px-4 py-2 bg-white text-slate-700 rounded-lg text-sm font-bold shadow-lg hover:bg-slate-50 transition-all flex items-center gap-2"
+                    >
+                      <Globe className="w-4 h-4" />
+                      {isFullscreenMap ? "Exit Fullscreen" : "Expand Map"}
+                    </button>
                     <button 
                       onClick={() => setShowHeatmap(!showHeatmap)}
                       className={cn(
@@ -432,7 +507,7 @@ export default function App() {
                       <StatCard 
                         icon={<DollarSign className="text-blue-500" />} 
                         label="Monthly Savings" 
-                        value={`$${analysisResult.monthlySavings.toLocaleString()}`} 
+                        value={formatCurrency(analysisResult.monthlySavings)} 
                         subtext="Estimated Reduction"
                       />
                     </div>
@@ -499,7 +574,7 @@ export default function App() {
                               <p className="text-xs text-slate-500">Standard Poly-crystalline panels</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-2xl font-bold text-slate-900">${analysisResult.scenarios.budget.cost.toLocaleString()}</p>
+                              <p className="text-2xl font-bold text-slate-900">{formatCurrency(analysisResult.scenarios.budget.cost)}</p>
                               <p className="text-[10px] font-bold text-slate-400 uppercase">Initial Investment</p>
                             </div>
                           </div>
@@ -534,7 +609,7 @@ export default function App() {
                               <p className="text-xs text-orange-700/60">High-efficiency Mono-PERC panels</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-2xl font-bold text-orange-900">${analysisResult.scenarios.premium.cost.toLocaleString()}</p>
+                              <p className="text-2xl font-bold text-orange-900">{formatCurrency(analysisResult.scenarios.premium.cost)}</p>
                               <p className="text-[10px] font-bold text-orange-400 uppercase">Initial Investment</p>
                             </div>
                           </div>
@@ -610,7 +685,13 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-6"
               >
-                <h2 className="text-2xl font-display font-bold text-slate-900">Community Impact Reports</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-display font-bold text-slate-900">Community Impact Reports</h2>
+                  <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                    <Loader2 size={16} className="text-orange-500" />
+                    Fetch Latest Reports
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <ReportCard 
                     title="Municipal Solar Adoption" 
@@ -630,6 +711,181 @@ export default function App() {
                     status="Review"
                     description="Technical report on how decentralized solar generation affects local grid stability."
                   />
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'settings' && (
+              <motion.div 
+                key="settings"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="max-w-4xl mx-auto space-y-8"
+              >
+                <div>
+                  <h2 className="text-2xl font-display font-bold text-slate-900">Platform Settings</h2>
+                  <p className="text-slate-500">Configure geospatial parameters, financial defaults, and reporting preferences.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Map Configuration */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
+                      <MapIcon size={18} className="text-blue-500" />
+                      Map Configuration
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Map Provider</label>
+                        <select 
+                          value={mapProvider}
+                          onChange={(e) => setMapProvider(e.target.value as any)}
+                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                        >
+                          <option value="osm">OpenStreetMap (Standard)</option>
+                          <option value="satellite">Satellite Imagery (Mock)</option>
+                          <option value="terrain">Terrain View (Mock)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Default Zoom Level</label>
+                        <input 
+                          type="range" 
+                          min="1" 
+                          max="20" 
+                          value={defaultZoom}
+                          onChange={(e) => setDefaultZoom(Number(e.target.value))}
+                          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                        />
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
+                          <span>Global</span>
+                          <span>Street Level ({defaultZoom})</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Financial Defaults */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
+                      <DollarSign size={18} className="text-emerald-500" />
+                      Financial Intelligence Defaults
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Preferred Currency</label>
+                        <select 
+                          value={currency}
+                          onChange={(e) => setCurrency(e.target.value as any)}
+                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                        >
+                          <option value="USD">USD ($)</option>
+                          <option value="EUR">EUR (€)</option>
+                          <option value="INR">INR (₹)</option>
+                          <option value="GBP">GBP (£)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Policy Subsidy Rate (%)</label>
+                        <input 
+                          type="number" 
+                          value={subsidyRate}
+                          onChange={(e) => setSubsidyRate(Number(e.target.value))}
+                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reporting Preferences */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
+                      <FileText size={18} className="text-purple-500" />
+                      Reporting Preferences
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Organization Name</label>
+                        <input 
+                          type="text" 
+                          value={orgName}
+                          onChange={(e) => setOrgName(e.target.value)}
+                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Contact Email</label>
+                        <input 
+                          type="email" 
+                          value={contactEmail}
+                          onChange={(e) => setContactEmail(e.target.value)}
+                          className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500/20 outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span className="text-sm font-medium text-slate-700">Include AI Verdict in PDF</span>
+                        <button 
+                          onClick={() => setIncludeVerdict(!includeVerdict)}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            includeVerdict ? "bg-orange-500" : "bg-slate-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            includeVerdict ? "right-1" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System & AI */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
+                      <Zap size={18} className="text-orange-500" />
+                      System & AI Behavior
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-slate-700">Auto-Run Analysis</span>
+                          <span className="text-[10px] text-slate-400">Analyze site immediately on click</span>
+                        </div>
+                        <button 
+                          onClick={() => setAutoAnalyze(!autoAnalyze)}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            autoAnalyze ? "bg-orange-500" : "bg-slate-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            autoAnalyze ? "right-1" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+                      <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                        <div className="flex items-center gap-2 text-blue-700 mb-1">
+                          <ShieldCheck size={14} />
+                          <span className="text-xs font-bold uppercase tracking-wider">AI Model Status</span>
+                        </div>
+                        <p className="text-[11px] text-blue-600 leading-tight">
+                          Gemini 3 Flash is currently active. Decision intelligence is optimized for policy impact and technical viability.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4">
+                  <button 
+                    onClick={() => setActiveTab('map')}
+                    className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+                  >
+                    Save & Apply Changes
+                  </button>
                 </div>
               </motion.div>
             )}
