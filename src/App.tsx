@@ -40,14 +40,19 @@ export default function App() {
   const [isGovMode, setIsGovMode] = useState(false);
   const [isFullscreenMap, setIsFullscreenMap] = useState(false);
 
+  // Mode Indicator
+  const [mode, setMode] = useState<'viewing' | 'selected' | 'ready' | 'no-data'>('viewing');
+
   // Settings State
   const [mapProvider, setMapProvider] = useState<'osm' | 'satellite' | 'terrain'>('osm');
   const [currency, setCurrency] = useState<'USD' | 'EUR' | 'INR' | 'GBP'>('USD');
   const [defaultZoom, setDefaultZoom] = useState<number>(13);
-  const [autoAnalyze, setAutoAnalyze] = useState<boolean>(true);
+  const [autoAnalyze, setAutoAnalyze] = useState<boolean>(false); // Default to false for pro flow
   const [orgName, setOrgName] = useState<string>('SolarPotential AI');
   const [contactEmail, setContactEmail] = useState<string>('support@solarpotential.ai');
   const [includeVerdict, setIncludeVerdict] = useState<boolean>(true);
+  const [includePolicyImpact, setIncludePolicyImpact] = useState<boolean>(true);
+  const [includeFinancialScenarios, setIncludeFinancialScenarios] = useState<boolean>(true);
   const [subsidyRate, setSubsidyRate] = useState<number>(30);
 
   // Custom parameters
@@ -77,19 +82,32 @@ export default function App() {
         tilt,
         orientation,
         shading
+      }, {
+        orgName,
+        includeVerdict,
+        includePolicyImpact,
+        includeFinancialScenarios
       });
     }
   };
 
   const handleZoneSelect = async (zone: any) => {
     setSelectedZone(zone);
-    if (autoAnalyze) {
-      setActiveTab('analysis');
-      runAnalysis(zone);
+    if (zone) {
+      setMode('selected');
+      if (autoAnalyze) {
+        setMode('ready');
+        setActiveTab('analysis');
+        runAnalysis(zone);
+      }
+    } else {
+      setMode('viewing');
     }
   };
 
   const runAnalysis = async (zone: any) => {
+    if (!zone) return;
+    setMode('ready');
     setIsAnalyzing(true);
     setError(null);
     
@@ -97,6 +115,8 @@ export default function App() {
       const result = await analyzeSolarPotential({
         area: zone.area,
         sunlightHours: zone.irradiance,
+        lat: zone.lat,
+        lng: zone.lng,
         tariff: currency === 'INR' ? 7.5 : 0.15, // Dynamic tariff based on currency
         location: zone.name || `Lat: ${zone.lat}, Lng: ${zone.lng}`,
         efficiency,
@@ -201,7 +221,7 @@ export default function App() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    // Trigger search logic if needed
+                    setActiveTab('map');
                   }
                 }}
                 className="w-full pl-10 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all"
@@ -241,8 +261,23 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="h-full flex flex-col gap-6"
+                className="h-full flex flex-col gap-6 relative"
               >
+                {/* Mode Indicator Overlay */}
+                <div className="absolute top-4 left-4 z-[1000] flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur border border-slate-200 rounded-full shadow-sm">
+                  <div className={cn(
+                    "w-2 h-2 rounded-full animate-pulse",
+                    mode === 'viewing' ? "bg-emerald-500" :
+                    mode === 'selected' ? "bg-amber-500" :
+                    mode === 'ready' ? "bg-blue-500" : "bg-slate-400"
+                  )} />
+                  <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                    {mode === 'viewing' ? "🟢 Viewing Mode" :
+                     mode === 'selected' ? "🟡 Selected Location" :
+                     mode === 'ready' ? "🔵 Analysis Ready" : "🔴 No Data"}
+                  </span>
+                </div>
+
                 <div className="flex items-end justify-between">
                   <div>
                     <h2 className="text-2xl font-display font-bold text-slate-900">Geospatial Solar Potential</h2>
@@ -280,7 +315,7 @@ export default function App() {
                       showHeatmap={showHeatmap}
                     />
                   </div>
-                  <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-2">
+                  <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
                     <button 
                       onClick={() => setIsFullscreenMap(!isFullscreenMap)}
                       className="px-4 py-2 bg-white text-slate-700 rounded-lg text-sm font-bold shadow-lg hover:bg-slate-50 transition-all flex items-center gap-2"
@@ -298,34 +333,44 @@ export default function App() {
                       <Layers className="w-4 h-4" />
                       {showHeatmap ? "Hide Heatmap" : "Show Heatmap"}
                     </button>
-                    {isGovMode && (
+                  </div>
+
+                  {/* Analysis CTA Overlay */}
+                  <AnimatePresence>
+                    {selectedZone && (
                       <motion.div 
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="bg-white p-4 rounded-xl shadow-xl border border-slate-200 w-64"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 20 }}
+                        className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000]"
                       >
-                        <div className="flex items-center gap-2 mb-3">
-                          <Globe className="w-4 h-4 text-blue-500" />
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">District Intelligence</h4>
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-[10px] text-slate-400 uppercase font-bold">Total Ward Potential</p>
-                            <p className="text-lg font-bold text-slate-900">45.2 MW</p>
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xl flex items-center gap-6 min-w-[400px]">
+                          <div className="flex-1">
+                            <h4 className="font-bold text-slate-900 text-sm">{selectedZone.name}</h4>
+                            <p className="text-xs text-slate-500">{selectedZone.area} m² • {selectedZone.potential} Potential</p>
                           </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 uppercase font-bold">Adoption Rate</p>
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div className="bg-emerald-500 h-full" style={{ width: '12%' }} />
-                              </div>
-                              <span className="text-xs font-bold text-slate-700">12%</span>
-                            </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => setSelectedZone(null)}
+                              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-colors"
+                            >
+                              <X size={20} />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setActiveTab('analysis');
+                                runAnalysis(selectedZone);
+                              }}
+                              className="px-6 py-2.5 bg-orange-500 text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-200 active:scale-95"
+                            >
+                              <Zap size={16} />
+                              Analyze This Location
+                            </button>
                           </div>
                         </div>
                       </motion.div>
                     )}
-                  </div>
+                  </AnimatePresence>
                 </div>
               </motion.div>
             )}
@@ -469,15 +514,50 @@ export default function App() {
                   </div>
                 ) : analysisResult ? (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Confidence & Data Source */}
+                    <div className="lg:col-span-3 flex items-center justify-between p-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                      <div className="flex items-center gap-4">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Confidence Score</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl font-bold text-slate-900">{analysisResult.confidenceScore}%</span>
+                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div 
+                                className={cn(
+                                  "h-full rounded-full",
+                                  analysisResult.confidenceScore > 80 ? "bg-emerald-500" :
+                                  analysisResult.confidenceScore > 60 ? "bg-amber-500" : "bg-red-500"
+                                )} 
+                                style={{ width: `${analysisResult.confidenceScore}%` }} 
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="h-8 w-px bg-slate-200" />
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data Sources</span>
+                          <div className="flex gap-1 mt-1">
+                            {analysisResult.dataSources.map((source, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium">{source}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assumptions</span>
+                        <p className="text-[10px] text-slate-500 italic">{analysisResult.assumptions[0]} + {analysisResult.assumptions.length - 1} more</p>
+                      </div>
+                    </div>
+
                     {/* Stats Cards */}
                     <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6">
                       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Decision Verdict</p>
                         <div className="flex items-center gap-2 mb-2">
                           <span className={cn(
-                            "text-xl font-bold px-3 py-1 rounded-lg",
-                            analysisResult.decision.verdict === 'YES' ? "bg-emerald-100 text-emerald-700" :
-                            analysisResult.decision.verdict === 'NO' ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                            "text-xs font-bold px-3 py-1 rounded-lg",
+                            analysisResult.decision.verdict === 'HIGHLY RECOMMENDED' ? "bg-emerald-100 text-emerald-700" :
+                            analysisResult.decision.verdict === 'NOT RECOMMENDED' ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
                           )}>
                             {analysisResult.decision.verdict}
                           </span>
@@ -489,27 +569,138 @@ export default function App() {
                           className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-sm active:scale-95"
                         >
                           <Download size={14} />
-                          Download Policy Report
+                          Download Boardroom Report
                         </button>
                       </div>
                       <StatCard 
                         icon={<Zap className="text-orange-500" />} 
                         label="Est. Annual Output" 
                         value={`${analysisResult.estimatedOutputKW.toLocaleString()} kW`} 
-                        subtext="Predicted by AI Model"
+                        subtext={`Rec: ${analysisResult.technicalAnalysis.systemSizeRecommendationKW}kW System`}
                       />
                       <StatCard 
                         icon={<TrendingUp className="text-emerald-500" />} 
                         label="ROI / Payback" 
                         value={`${analysisResult.roiPercentage}% / ${analysisResult.paybackPeriodYears}y`} 
-                        subtext="Financial Intelligence"
+                        subtext={`Lifetime: ${formatCurrency(analysisResult.financialAnalysis.lifetimeSavings)}`}
                       />
                       <StatCard 
                         icon={<DollarSign className="text-blue-500" />} 
                         label="Monthly Savings" 
                         value={formatCurrency(analysisResult.monthlySavings)} 
-                        subtext="Estimated Reduction"
+                        subtext={`Maint: ${formatCurrency(analysisResult.financialAnalysis.maintenanceCostEst)}/yr`}
                       />
+                    </div>
+
+                    {/* Technical, Financial, Risk Layers */}
+                    <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Technical Layer */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <Zap size={14} className="text-orange-500" />
+                          Technical Layer
+                        </h4>
+                        <div className="space-y-4">
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Peak Generation Months</p>
+                            <div className="flex flex-wrap gap-1">
+                              {analysisResult.technicalAnalysis.peakGenerationMonths.map(m => (
+                                <span key={m} className="px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-[10px] font-bold">{m}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Efficiency Loss Factors</p>
+                            <ul className="space-y-1">
+                              {analysisResult.technicalAnalysis.efficiencyLossFactors.map(f => (
+                                <li key={f} className="text-[10px] text-slate-600 flex items-center gap-1">
+                                  <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                                  {f}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Financial Layer */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <DollarSign size={14} className="text-emerald-500" />
+                          Financial Layer
+                        </h4>
+                        <div className="space-y-4">
+                          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                            <p className="text-[10px] text-emerald-700 font-bold uppercase mb-1">Incentive Breakdown</p>
+                            <p className="text-[11px] text-emerald-600 leading-tight">{analysisResult.financialAnalysis.incentiveBreakdown}</p>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-[11px] text-slate-500">Est. Lifetime Savings</span>
+                            <span className="text-sm font-bold text-slate-900">{formatCurrency(analysisResult.financialAnalysis.lifetimeSavings)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Risk Layer */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <AlertCircle size={14} className="text-red-500" />
+                          Risk Layer
+                        </h4>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-slate-500">Shading Risk</span>
+                            <span className={cn(
+                              "font-bold",
+                              analysisResult.riskAnalysis.shadingRisk === 'Low' ? "text-emerald-600" :
+                              analysisResult.riskAnalysis.shadingRisk === 'Medium' ? "text-amber-600" : "text-red-600"
+                            )}>{analysisResult.riskAnalysis.shadingRisk}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-slate-500">Weather Variability</span>
+                            <span className={cn(
+                              "font-bold",
+                              analysisResult.riskAnalysis.weatherVariability === 'Low' ? "text-emerald-600" :
+                              analysisResult.riskAnalysis.weatherVariability === 'Medium' ? "text-amber-600" : "text-red-600"
+                            )}>{analysisResult.riskAnalysis.weatherVariability}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-slate-500">Policy Dependency</span>
+                            <span className={cn(
+                              "font-bold",
+                              analysisResult.riskAnalysis.policyRisk === 'Low' ? "text-emerald-600" :
+                              analysisResult.riskAnalysis.policyRisk === 'Medium' ? "text-amber-600" : "text-red-600"
+                            )}>{analysisResult.riskAnalysis.policyRisk}</span>
+                          </div>
+                          <div className="pt-2">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Mitigation</p>
+                            <p className="text-[10px] text-slate-500 leading-tight italic">{analysisResult.riskAnalysis.mitigationStrategies[0]}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Recommendations Engine */}
+                    <div className="lg:col-span-3 bg-slate-900 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-8 opacity-10">
+                        <ZapIcon size={120} className="text-orange-500" />
+                      </div>
+                      <div className="relative z-10">
+                        <h4 className="text-xs font-bold text-orange-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <ShieldCheck size={14} />
+                          AI Strategic Recommendations
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {analysisResult.recommendations.map((rec, i) => (
+                            <div key={i} className="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                              <div className="w-5 h-5 bg-orange-500/20 rounded flex items-center justify-center text-orange-500 shrink-0 mt-0.5">
+                                <span className="text-[10px] font-bold">{i + 1}</span>
+                              </div>
+                              <p className="text-xs text-slate-300 leading-relaxed">{rec}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Policy & Grid Impact */}
@@ -835,6 +1026,36 @@ export default function App() {
                           <div className={cn(
                             "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
                             includeVerdict ? "right-1" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span className="text-sm font-medium text-slate-700">Include Policy Impact</span>
+                        <button 
+                          onClick={() => setIncludePolicyImpact(!includePolicyImpact)}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            includePolicyImpact ? "bg-orange-500" : "bg-slate-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            includePolicyImpact ? "right-1" : "left-1"
+                          )} />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <span className="text-sm font-medium text-slate-700">Include Financial Scenarios</span>
+                        <button 
+                          onClick={() => setIncludeFinancialScenarios(!includeFinancialScenarios)}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-all relative",
+                            includeFinancialScenarios ? "bg-orange-500" : "bg-slate-300"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                            includeFinancialScenarios ? "right-1" : "left-1"
                           )} />
                         </button>
                       </div>

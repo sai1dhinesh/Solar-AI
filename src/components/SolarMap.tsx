@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, useMapEvents, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { cn } from '../lib/utils';
@@ -146,21 +146,21 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
     zone.id.includes(searchQuery)
   );
 
-  // Global Search Logic using Nominatim
-  useEffect(() => {
-    if (!localSearch || localSearch.length < 3) return;
+  // Refactored Search Logic
+  const performSearch = async (query: string, shouldSelect: boolean = false) => {
+    if (!query || query.length < 3) return;
 
-    const timer = setTimeout(async () => {
-      // 1. Check if it's a coordinate search
-      const coordRegex = /^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/;
-      const match = localSearch.match(coordRegex);
-      if (match) {
-        const lat = parseFloat(match[1]);
-        const lng = parseFloat(match[3]);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          setCenter([lat, lng]);
-          setZoom(15);
-          setCustomMarker([lat, lng]);
+    // 1. Check if it's a coordinate search
+    const coordRegex = /^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/;
+    const match = query.match(coordRegex);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lng = parseFloat(match[3]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setCenter([lat, lng]);
+        setZoom(15);
+        setCustomMarker([lat, lng]);
+        if (shouldSelect) {
           onZoneSelect({
             id: 'coords',
             name: `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
@@ -171,31 +171,33 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
             area: 250,
             historicalData: MOCK_ZONES[1].historicalData
           });
-          return;
         }
-      }
-
-      // 2. Check if it's a mock zone search
-      const zoneMatch = MOCK_ZONES.find(z => z.name.toLowerCase() === localSearch.toLowerCase());
-      if (zoneMatch) {
-        setCenter([zoneMatch.lat, zoneMatch.lng]);
-        setZoom(14);
-        onZoneSelect(zoneMatch);
         return;
       }
+    }
 
-      // 3. Global Geocoding Search
-      setIsSearching(true);
-      try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(localSearch)}&limit=1`);
-        const data = await response.json();
-        if (data && data.length > 0) {
-          const { lat, lon, display_name } = data[0];
-          const newLat = parseFloat(lat);
-          const newLng = parseFloat(lon);
-          setCenter([newLat, newLng]);
-          setZoom(14);
-          setCustomMarker([newLat, newLng]);
+    // 2. Check if it's a mock zone search
+    const zoneMatch = MOCK_ZONES.find(z => z.name.toLowerCase() === query.toLowerCase());
+    if (zoneMatch) {
+      setCenter([zoneMatch.lat, zoneMatch.lng]);
+      setZoom(14);
+      if (shouldSelect) onZoneSelect(zoneMatch);
+      return;
+    }
+
+    // 3. Global Geocoding Search
+    setIsSearching(true);
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const { lat, lon, display_name } = data[0];
+        const newLat = parseFloat(lat);
+        const newLng = parseFloat(lon);
+        setCenter([newLat, newLng]);
+        setZoom(14);
+        setCustomMarker([newLat, newLng]);
+        if (shouldSelect) {
           onZoneSelect({
             id: 'search-result',
             name: display_name.split(',')[0],
@@ -207,15 +209,28 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
             historicalData: MOCK_ZONES[1].historicalData
           });
         }
-      } catch (error) {
-        console.error('Geocoding error:', error);
-      } finally {
-        setIsSearching(false);
       }
-    }, 1000); // Debounce search
+    } catch (error) {
+      console.error('Geocoding error:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
+  // Debounce search for panning/zooming only
+  useEffect(() => {
+    if (!localSearch || localSearch.length < 3) return;
+    const timer = setTimeout(() => {
+      performSearch(localSearch, false);
+    }, 1000);
     return () => clearTimeout(timer);
-  }, [localSearch, onZoneSelect]);
+  }, [localSearch]);
+
+  const handleSearchSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    performSearch(localSearch, true);
+    setShowSuggestions(false);
+  };
 
   // Autocomplete Logic
   useEffect(() => {
@@ -289,11 +304,6 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
     }
   };
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // The useEffect handles the search via searchQuery prop
-  };
-
   const handleMapClick = (lat: number, lng: number) => {
     setCustomMarker([lat, lng]);
     onZoneSelect({
@@ -353,15 +363,35 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
         <MapEvents onMapClick={handleMapClick} />
         
         {showHeatmap && (
-          <Circle
-            center={center}
-            radius={5000}
-            pathOptions={{
-              fillColor: '#f59e0b',
-              color: 'transparent',
-              fillOpacity: 0.1,
-            }}
-          />
+          <>
+            <Circle
+              center={center}
+              radius={8000}
+              pathOptions={{
+                fillColor: '#f59e0b',
+                color: 'transparent',
+                fillOpacity: 0.05,
+              }}
+            />
+            <Circle
+              center={center}
+              radius={5000}
+              pathOptions={{
+                fillColor: '#f59e0b',
+                color: 'transparent',
+                fillOpacity: 0.1,
+              }}
+            />
+            <Circle
+              center={center}
+              radius={2000}
+              pathOptions={{
+                fillColor: '#f59e0b',
+                color: 'transparent',
+                fillOpacity: 0.15,
+              }}
+            />
+          </>
         )}
 
         {customMarker && (
@@ -386,7 +416,14 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
                 weight: 1,
                 fillOpacity: 0.4,
               }}
-            />
+            >
+              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                <div className="p-1">
+                  <p className="text-[10px] font-bold text-slate-900">{zone.name}</p>
+                  <p className="text-[10px] text-slate-500">{zone.irradiance} kWh/m² • {zone.potential}</p>
+                </div>
+              </Tooltip>
+            </Circle>
             <Marker position={[zone.lat, zone.lng]} eventHandlers={{ click: () => onZoneSelect(zone) }}>
               <Popup>
                 <div className="p-2 min-w-[150px]">
@@ -456,6 +493,7 @@ export default function SolarMap({ onZoneSelect, searchQuery = '', onSearchChang
         onSelectSuggestion={handleSelectSuggestion}
         onCloseSuggestions={() => setShowSuggestions(false)}
         onOpenSuggestions={() => setShowSuggestions(true)}
+        onSearchSubmit={handleSearchSubmit}
       />
 
       {/* Map Controls */}
@@ -489,7 +527,8 @@ function SearchOverlay({
   showSuggestions, 
   onSelectSuggestion,
   onCloseSuggestions,
-  onOpenSuggestions
+  onOpenSuggestions,
+  onSearchSubmit
 }: { 
   value: string, 
   onChange: (val: string) => void, 
@@ -498,7 +537,8 @@ function SearchOverlay({
   showSuggestions: boolean,
   onSelectSuggestion: (s: any) => void,
   onCloseSuggestions: () => void,
-  onOpenSuggestions: () => void
+  onOpenSuggestions: () => void,
+  onSearchSubmit: () => void
 }) {
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-md px-4">
@@ -514,6 +554,12 @@ function SearchOverlay({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onFocus={() => value.length >= 3 && onOpenSuggestions()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                (e.target as HTMLInputElement).blur();
+                onSearchSubmit();
+              }
+            }}
             className="flex-1 bg-transparent border-none outline-none text-sm py-2 pr-4 text-slate-700 placeholder:text-slate-400"
           />
           {value && (
@@ -530,11 +576,7 @@ function SearchOverlay({
               <div className="w-px h-4 bg-slate-200 mx-1" />
               <button 
                 className="px-3 py-1.5 text-xs font-bold text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
-                onClick={() => {
-                  // Trigger search logic
-                  onChange(value);
-                  onCloseSuggestions();
-                }}
+                onClick={onSearchSubmit}
               >
                 Search
               </button>
