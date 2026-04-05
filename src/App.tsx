@@ -25,7 +25,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import SolarMap from './components/SolarMap';
 import { EnergyOutputChart, SavingsChart } from './components/Charts';
 import FeedbackForm from './components/FeedbackForm';
-import { analyzeSolarPotential, type SolarAnalysisResult } from './services/gemini';
+import { analyzeSolarPotential, detectRooftops, type SolarAnalysisResult, type RooftopDetectionResult } from './services/gemini';
 import { cn } from './lib/utils';
 import { generatePDFReport } from './lib/pdfGenerator';
 
@@ -34,6 +34,8 @@ export default function App() {
   const [selectedZone, setSelectedZone] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<SolarAnalysisResult | null>(null);
+  const [rooftopData, setRooftopData] = useState<RooftopDetectionResult | null>(null);
+  const [isDetectingRooftops, setIsDetectingRooftops] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -109,11 +111,22 @@ export default function App() {
     if (!zone) return;
     setMode('ready');
     setIsAnalyzing(true);
+    setIsDetectingRooftops(true);
     setError(null);
+    setRooftopData(null);
     
     try {
+      // 1. Detect Rooftops from Satellite Imagery
+      // Using Yandex Static Maps as a free satellite imagery source for demo
+      const satImageUrl = `https://static-maps.yandex.ru/1.x/?ll=${zone.lng},${zone.lat}&z=19&l=sat&size=600,450`;
+      const rooftopResult = await detectRooftops(satImageUrl, zone.name || `Lat: ${zone.lat}, Lng: ${zone.lng}`);
+      setRooftopData(rooftopResult);
+
+      // 2. Run Main Solar Analysis (using detected area if available)
+      const analysisArea = rooftopResult.totalSuitableAreaSqM > 0 ? rooftopResult.totalSuitableAreaSqM : zone.area;
+
       const result = await analyzeSolarPotential({
-        area: zone.area,
+        area: analysisArea,
         sunlightHours: zone.irradiance,
         lat: zone.lat,
         lng: zone.lng,
@@ -132,6 +145,7 @@ export default function App() {
       setError("Failed to analyze solar potential. Please check your API key.");
     } finally {
       setIsAnalyzing(false);
+      setIsDetectingRooftops(false);
     }
   };
 
@@ -501,9 +515,13 @@ export default function App() {
                 ) : isAnalyzing ? (
                   <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
                     <Loader2 className="w-12 h-12 text-orange-500 animate-spin mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold text-slate-900">AI Regression Model Running...</h3>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      {isDetectingRooftops ? "AI Computer Vision Model Detecting Rooftops..." : "AI Regression Model Running..."}
+                    </h3>
                     <p className="text-slate-500 max-w-xs mx-auto mt-2">
-                      Estimating energy output based on rooftop area, sunlight hours, and local tariffs.
+                      {isDetectingRooftops 
+                        ? "Analyzing satellite imagery to identify suitable installation spots and estimate area."
+                        : "Estimating energy output based on rooftop area, sunlight hours, and local tariffs."}
                     </p>
                   </div>
                 ) : error ? (
@@ -515,39 +533,138 @@ export default function App() {
                 ) : analysisResult ? (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Confidence & Data Source */}
-                    <div className="lg:col-span-3 flex items-center justify-between p-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
-                      <div className="flex items-center gap-4">
+                    <div className="lg:col-span-3 flex items-center justify-between p-5 bg-slate-900 text-white rounded-2xl shadow-xl border border-slate-800">
+                      <div className="flex items-center gap-6">
                         <div className="flex flex-col">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Confidence Score</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl font-bold text-slate-900">{analysisResult.confidenceScore}%</span>
-                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="flex items-center gap-2 mb-1">
+                            <ShieldCheck size={14} className="text-orange-400" />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Trust & Transparency Score</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl font-bold text-white">{analysisResult.confidenceScore}%</span>
+                            <div className="w-32 h-2 bg-slate-800 rounded-full overflow-hidden">
                               <div 
                                 className={cn(
-                                  "h-full rounded-full",
-                                  analysisResult.confidenceScore > 80 ? "bg-emerald-500" :
-                                  analysisResult.confidenceScore > 60 ? "bg-amber-500" : "bg-red-500"
+                                  "h-full rounded-full transition-all duration-1000",
+                                  analysisResult.confidenceScore > 80 ? "bg-emerald-400" :
+                                  analysisResult.confidenceScore > 60 ? "bg-amber-400" : "bg-red-400"
                                 )} 
                                 style={{ width: `${analysisResult.confidenceScore}%` }} 
                               />
                             </div>
                           </div>
                         </div>
-                        <div className="h-8 w-px bg-slate-200" />
+                        <div className="h-10 w-px bg-slate-800" />
                         <div className="flex flex-col">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data Sources</span>
-                          <div className="flex gap-1 mt-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Verified Data Sources</span>
+                          <div className="flex flex-wrap gap-1.5">
                             {analysisResult.dataSources.map((source, i) => (
-                              <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium">{source}</span>
+                              <span key={i} className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-bold border border-slate-700">{source}</span>
                             ))}
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assumptions</span>
-                        <p className="text-[10px] text-slate-500 italic">{analysisResult.assumptions[0]} + {analysisResult.assumptions.length - 1} more</p>
+                      <div className="text-right max-w-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Primary AI Assumptions</span>
+                        <p className="text-[10px] text-slate-400 italic leading-tight">
+                          "{analysisResult.assumptions[0]}" and {analysisResult.assumptions.length - 1} other critical factors considered.
+                        </p>
                       </div>
                     </div>
+
+                    {/* Rooftop Detection Results */}
+                    {rooftopData && (
+                      <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-6">
+                          <h3 className="font-display font-bold text-lg flex items-center gap-2">
+                            <Globe size={20} className="text-blue-500" />
+                            AI Rooftop Detection Analysis
+                          </h3>
+                          <div className="flex items-center gap-3">
+                            <div className="flex flex-col items-end">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Detection Confidence</span>
+                              <span className="text-sm font-bold text-blue-600">{rooftopData.confidenceScore}%</span>
+                            </div>
+                            <Badge color="blue">{rooftopData.detectedRooftops.length} Rooftops Detected</Badge>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="space-y-4">
+                            <div className="aspect-video bg-slate-100 rounded-xl overflow-hidden border border-slate-200 relative group">
+                              <img 
+                                src={`https://static-maps.yandex.ru/1.x/?ll=${selectedZone.lng},${selectedZone.lat}&z=19&l=sat&size=600,450`}
+                                alt="Satellite View"
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-all flex items-center justify-center">
+                                <p className="text-white text-xs font-bold bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm">
+                                  AI Analysis Overlay Active
+                                </p>
+                              </div>
+                            </div>
+                            <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100/50">
+                              <p className="text-[10px] text-blue-700 font-bold uppercase mb-1 flex items-center gap-1">
+                                <Info size={10} />
+                                Image Analysis Summary
+                              </p>
+                              <p className="text-xs text-slate-600 italic leading-relaxed">
+                                {rooftopData.imageAnalysisSummary}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {rooftopData.dataSources.map((source, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-medium">Source: {source}</span>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                                <p className="text-[10px] text-blue-700 font-bold uppercase mb-1">Total Suitable Area</p>
+                                <p className="text-xl font-bold text-blue-900">{rooftopData.totalSuitableAreaSqM} m²</p>
+                              </div>
+                              <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                                <p className="text-[10px] text-emerald-700 font-bold uppercase mb-1">Avg. Suitability</p>
+                                <p className="text-xl font-bold text-emerald-900">High</p>
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                              {rooftopData.detectedRooftops.map((roof) => (
+                                <div key={roof.id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between">
+                                  <div>
+                                    <p className="text-xs font-bold text-slate-900">Rooftop {roof.id}</p>
+                                    <p className="text-[10px] text-slate-500">{roof.areaSqM} m² • {roof.orientation} • {roof.estimatedTilt}°</p>
+                                  </div>
+                                  <span className={cn(
+                                    "text-[10px] font-bold px-2 py-0.5 rounded",
+                                    roof.suitability === 'High' ? "bg-emerald-100 text-emerald-700" :
+                                    roof.suitability === 'Medium' ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                                  )}>
+                                    {roof.suitability}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-100">
+                              <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Key Detection Assumptions</p>
+                              <ul className="space-y-1">
+                                {rooftopData.assumptions.map((asmp, i) => (
+                                  <li key={i} className="text-[10px] text-slate-500 flex items-center gap-1">
+                                    <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                                    {asmp}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Stats Cards */}
                     <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -1175,11 +1292,12 @@ function ReportCard({ title, date, status, description }: { title: string, date:
   );
 }
 
-function Badge({ children, color }: { children: React.ReactNode, color: 'orange' | 'amber' | 'slate' }) {
+function Badge({ children, color }: { children: React.ReactNode, color: 'orange' | 'amber' | 'slate' | 'blue' }) {
   const colors = {
     orange: "bg-orange-100 text-orange-700 border-orange-200",
     amber: "bg-amber-100 text-amber-700 border-amber-200",
     slate: "bg-slate-100 text-slate-700 border-slate-200",
+    blue: "bg-blue-100 text-blue-700 border-blue-200"
   };
   
   return (

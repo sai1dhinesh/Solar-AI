@@ -46,6 +46,118 @@ export interface SolarAnalysisResult {
   };
 }
 
+export interface RooftopDetectionResult {
+  detectedRooftops: {
+    id: string;
+    areaSqM: number;
+    suitability: 'High' | 'Medium' | 'Low';
+    orientation: string;
+    estimatedTilt: number;
+    notes: string;
+  }[];
+  totalSuitableAreaSqM: number;
+  imageAnalysisSummary: string;
+  confidenceScore: number;
+  dataSources: string[];
+  assumptions: string[];
+}
+
+export async function detectRooftops(imageUrl: string, location: string): Promise<RooftopDetectionResult> {
+  try {
+    // Fetch the image and convert to base64
+    const imageResponse = await fetch(imageUrl);
+    const blob = await imageResponse.blob();
+    const base64Data = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.readAsDataURL(blob);
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: base64Data,
+          },
+        },
+        {
+          text: `Analyze this satellite imagery for the location: ${location}.
+          Your task is to detect suitable rooftops for solar panel installation.
+          For each suitable rooftop identified in the image:
+          1. Estimate its area in square meters.
+          2. Assess its suitability (High, Medium, Low) based on size, shading (if visible), and orientation.
+          3. Determine its orientation (e.g., South, South-West).
+          4. Estimate its tilt in degrees.
+          
+          Provide a summary of the analysis and a list of detected rooftops.
+          
+          Your response MUST be a valid JSON object matching this structure:
+          {
+            "detectedRooftops": [
+              {
+                "id": "string",
+                "areaSqM": number,
+                "suitability": "High" | "Medium" | "Low",
+                "orientation": "string",
+                "estimatedTilt": number,
+                "notes": "string"
+              }
+            ],
+            "totalSuitableAreaSqM": number,
+            "imageAnalysisSummary": "string",
+            "confidenceScore": number,
+            "dataSources": string[],
+            "assumptions": string[]
+          }`
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            detectedRooftops: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  areaSqM: { type: Type.NUMBER },
+                  suitability: { type: Type.STRING, enum: ["High", "Medium", "Low"] },
+                  orientation: { type: Type.STRING },
+                  estimatedTilt: { type: Type.NUMBER },
+                  notes: { type: Type.STRING }
+                },
+                required: ["id", "areaSqM", "suitability", "orientation", "estimatedTilt", "notes"]
+              }
+            },
+            totalSuitableAreaSqM: { type: Type.NUMBER },
+            imageAnalysisSummary: { type: Type.STRING },
+            confidenceScore: { type: Type.NUMBER },
+            dataSources: { type: Type.ARRAY, items: { type: Type.STRING } },
+            assumptions: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["detectedRooftops", "totalSuitableAreaSqM", "imageAnalysisSummary", "confidenceScore", "dataSources", "assumptions"]
+        }
+      }
+    });
+
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("Rooftop detection failed:", error);
+    return {
+      detectedRooftops: [],
+      totalSuitableAreaSqM: 0,
+      imageAnalysisSummary: "Rooftop detection unavailable for this location.",
+      confidenceScore: 0,
+      dataSources: ["System Error"],
+      assumptions: ["Detection failed"]
+    };
+  }
+}
+
 export async function analyzeSolarPotential(params: {
   area: number;
   sunlightHours?: number;
